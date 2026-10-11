@@ -49,6 +49,12 @@ def import_command(
     typer.echo("匯入摘要")
     typer.echo(f"  新增活動：{len(summary.imported)}")
     typer.echo(f"  重複略過：{len(summary.duplicates)}")
+    for dup in summary.duplicates:
+        # 同一檔案原樣重匯不必逐一列出；改名或換了 runner_id 才值得提醒
+        if dup.name == dup.existing_file:
+            continue
+        warning = "（runner_id 不同，請確認是否上傳錯檔）" if dup.runner_mismatch else ""
+        typer.echo(f"    - {dup.name}：與已匯入的 {dup.existing_file}（{dup.existing_runner}）內容相同{warning}")
     typer.echo(f"  失敗：{len(summary.failures)}")
     for name, reason in summary.failures:
         typer.echo(f"    - {name}：{reason}")

@@ -32,7 +32,7 @@ def test_importing_same_folder_twice_does_not_duplicate(tmp_path, gpx_bytes):
 
     assert activity_count(conn) == 1
     assert second.imported == []
-    assert second.duplicates == ["amy_a.gpx"]
+    assert [d.name for d in second.duplicates] == ["amy_a.gpx"]
 
 
 def test_renamed_copy_is_detected_by_content_hash(tmp_path, gpx_bytes):
@@ -46,7 +46,8 @@ def test_renamed_copy_is_detected_by_content_hash(tmp_path, gpx_bytes):
     summary = import_folder(conn, folder)
 
     assert activity_count(conn) == 1
-    assert summary.duplicates == ["amy_renamed.gpx"]
+    [dup] = summary.duplicates
+    assert (dup.name, dup.existing_file) == ("amy_renamed.gpx", "amy_a.gpx")
 
 
 def test_broken_file_does_not_stop_the_batch(tmp_path, gpx_bytes):
@@ -94,3 +95,17 @@ def test_activity_month_follows_taipei_local_date(tmp_path, gpx_bytes):
     import_folder(conn, folder)
 
     assert conn.execute("SELECT local_month FROM activities").fetchone()[0] == "2026-10"
+
+
+def test_duplicate_under_another_runner_id_is_flagged(tmp_path, gpx_bytes):
+    folder = tmp_path / "in"
+    folder.mkdir()
+    (folder / "hao_a.gpx").write_bytes(gpx_bytes())
+    (folder / "mei_a.gpx").write_bytes(gpx_bytes())  # mei 誤傳了 hao 的檔案
+    conn = connect(tmp_path / "s.db")
+
+    [dup] = import_folder(conn, folder).duplicates
+
+    assert dup.name == "mei_a.gpx"
+    assert dup.existing_runner == "hao"
+    assert dup.runner_mismatch

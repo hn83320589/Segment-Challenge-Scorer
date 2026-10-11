@@ -93,3 +93,12 @@ def test_report_lists_attempts_with_reasons(workspace, gpx_bytes, capsys):
 def test_report_unknown_runner_exits_1(workspace, capsys):
     _, _, db, config = workspace
     assert main(["report", "nobody", *db, *config]) == 1
+
+
+def test_import_summary_explains_cross_runner_duplicates(workspace, capsys):
+    _, folder, db, _ = workspace
+    (folder / "cat_copy.gpx").write_bytes((folder / "amy_a.gpx").read_bytes())
+    assert main(["import", str(folder), *db]) == 0
+    out = capsys.readouterr().out
+    assert "cat_copy.gpx：與已匯入的 amy_a.gpx（amy）內容相同" in out
+    assert "runner_id 不同" in out
