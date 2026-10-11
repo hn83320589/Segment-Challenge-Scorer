@@ -6,6 +6,8 @@
 
 匯入成員上傳的 GPX，自動比對挑戰區段，產生每月排行榜與跑者報告。這是命令列工具，成績全部由程式依同一套規則計算，幹部不必再手動在 Excel 對成績。
 
+![匯入範例資料後的排行榜與跑者報告](docs/terminal.png)
+
 ## 安裝與執行
 
 需要 Python 3.12 以上與 [uv](https://docs.astral.sh/uv/)（macOS 可用 `brew install uv` 安裝）。
