@@ -59,17 +59,27 @@ def connect(path: Path) -> sqlite3.Connection:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
+    target = len(MIGRATIONS)
     current = conn.execute("PRAGMA user_version").fetchone()[0]
-    if current > SCHEMA_VERSION:
-        raise RuntimeError(f"資料庫 schema 版本 {current} 比程式支援的 {SCHEMA_VERSION} 新，請更新程式")
-    for version in range(current, SCHEMA_VERSION):
-        with conn:
-            conn.executescript(MIGRATIONS[version])
-            conn.execute(f"PRAGMA user_version = {version + 1}")
+    if current > target:
+        raise RuntimeError(f"資料庫 schema 版本 {current} 比程式支援的 {target} 新，請更新程式")
+    for version in range(current, target):
+        # executescript 會先自行 COMMIT，無法放在 `with conn:` 的交易裡；
+        # 因此在 script 內明確 BEGIN/COMMIT，讓 migration 本體與 user_version 一起生效或一起撤銷。
+        script = f"BEGIN;\n{MIGRATIONS[version]}\nPRAGMA user_version = {version + 1};\nCOMMIT;"
+        try:
+            conn.executescript(script)
+        except sqlite3.Error as exc:
+            if conn.in_transaction:
+                conn.rollback()
+            raise RuntimeError(f"套用 migration {version + 1} 失敗，資料庫維持在版本 {version}：{exc}") from exc
 
 
-def hash_exists(conn: sqlite3.Connection, content_hash: str) -> bool:
-    return conn.execute("SELECT 1 FROM activities WHERE content_hash = ?", (content_hash,)).fetchone() is not None
+def find_by_hash(conn: sqlite3.Connection, content_hash: str) -> sqlite3.Row | None:
+    """回傳內容雜湊相同的既有活動（runner_id、source_file），沒有則為 None。"""
+    return conn.execute(
+        "SELECT runner_id, source_file FROM activities WHERE content_hash = ?", (content_hash,)
+    ).fetchone()
 
 
 def insert_activity(
