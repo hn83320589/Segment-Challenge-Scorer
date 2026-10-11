@@ -1,0 +1,31 @@
+[project]
+name = "segment-challenge-scorer"
+version = "0.1.0"
+description = "跑團區段挑戰計分工具：匯入 GPX、比對區段、產生排行榜"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "gpxpy>=1.6.2",
+    "pyyaml>=6.0.3",
+    "tabulate>=0.10.0",
+    "typer>=0.27.3",
+]
+
+[project.scripts]
+scorer = "scorer.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scorer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
