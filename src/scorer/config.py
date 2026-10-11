@@ -7,7 +7,10 @@ from typing import Any
 
 import yaml
 
+from scorer.geo import haversine_m
+
 DEFAULT_RADIUS_M = 25.0
+DISTANCE_TOLERANCE = 0.10  # 嘗試的實際距離須落在參考長度 ±10% 內
 MONTH_PATTERN = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 
@@ -66,7 +69,7 @@ def _parse_segment(raw: Any, where: str) -> Segment:
         raise ConfigError(f"{where}.month：格式必須是 YYYY-MM，收到 {month!r}")
 
     radius = raw.get("radius_m", DEFAULT_RADIUS_M)
-    return Segment(
+    segment = Segment(
         code=_required_str(raw, "code", where),
         name=_required_str(raw, "name", where),
         start=_parse_point(raw, "start", where),
@@ -75,6 +78,24 @@ def _parse_segment(raw: Any, where: str) -> Segment:
         reference_length_m=_positive_number(_required(raw, "reference_length_m", where), f"{where}.reference_length_m"),
         month=month,
     )
+    _check_geometry(segment, where)
+    return segment
+
+
+def _check_geometry(segment: Segment, where: str) -> None:
+    straight = haversine_m(segment.start.lat, segment.start.lon, segment.end.lat, segment.end.lon)
+    if straight <= 2 * segment.radius_m:
+        raise ConfigError(
+            f"{where}.radius_m：起點與終點判定圈重疊（起終點相距 {straight:.0f} m，"
+            f"必須大於 2 × 判定半徑 = {2 * segment.radius_m:.0f} m）"
+        )
+    # 嘗試距離從「進起點圈」量到「進終點圈」，至少約等於起終點直線距離
+    upper = segment.reference_length_m * (1 + DISTANCE_TOLERANCE)
+    if straight > upper:
+        raise ConfigError(
+            f"{where}.reference_length_m：起終點直線距離 {straight:.0f} m 已超過參考長度上限 {upper:.0f} m，"
+            "任何嘗試都不可能有效，請檢查座標或參考長度"
+        )
 
 
 def _parse_point(raw: dict, key: str, where: str) -> Point:

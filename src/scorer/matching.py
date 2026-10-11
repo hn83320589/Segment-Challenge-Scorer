@@ -4,11 +4,10 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from scorer.config import Point, Segment
+from scorer.config import DISTANCE_TOLERANCE, Point, Segment
 from scorer.geo import haversine_m, to_local_offset_m
 from scorer.track import TrackPoint
 
-DISTANCE_TOLERANCE = 0.10
 REASON_NOT_FINISHED = "進入起點後未到終點"
 # 相鄰兩點時間差超過此值時不做邊界內插：其中一點可能是飄移點，內插結果不可信
 MAX_INTERPOLATION_GAP_S = 10

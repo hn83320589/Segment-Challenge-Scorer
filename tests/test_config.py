@@ -61,3 +61,17 @@ def test_duplicate_code_is_rejected(tmp_path):
 def test_missing_file_is_config_error(tmp_path):
     with pytest.raises(ConfigError, match="找不到設定檔"):
         load_segments(tmp_path / "nope.yaml")
+
+
+def test_overlapping_start_and_end_circles_are_rejected(tmp_path):
+    # 起終點相距約 33 m，小於 2 × 25 m
+    text = VALID.replace("end: {lat: 25.03", "end: {lat: 25.0203")
+    with pytest.raises(ConfigError, match=r"segments\[0\]\.radius_m：.*重疊"):
+        load_segments(write(tmp_path, text))
+
+
+def test_straight_distance_beyond_reference_tolerance_is_rejected(tmp_path):
+    # 起終點直線距離約 1112 m，參考長度 1000 m 的上限是 1100 m，任何嘗試都不可能有效
+    text = VALID.replace("reference_length_m: 1200", "reference_length_m: 1000")
+    with pytest.raises(ConfigError, match=r"segments\[0\]\.reference_length_m：.*不可能有效"):
+        load_segments(write(tmp_path, text))
