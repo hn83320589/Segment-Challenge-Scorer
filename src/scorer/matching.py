@@ -10,6 +10,8 @@ from scorer.track import TrackPoint
 
 DISTANCE_TOLERANCE = 0.10
 REASON_NOT_FINISHED = "進入起點後未到終點"
+# 相鄰兩點時間差超過此值時不做邊界內插：其中一點可能是飄移點，內插結果不可信
+MAX_INTERPOLATION_GAP_S = 10
 
 
 @dataclass(frozen=True)
@@ -31,34 +33,32 @@ class Attempt:
 def match_segment(points: list[TrackPoint], segment: Segment) -> list[Attempt]:
     """找出所有「先進入起點圈、再進入終點圈」的嘗試。
 
-    - 「進入」是指從圈外移動到圈內（第一個點就在圈內也算進入）。
-    - 進入時間以相鄰兩點線性內插到判定圈邊界，降低取樣間隔造成的誤差。
+    - 「進入」是指從圈外移動到圈內；第一個點就在圈內也算進入。
+      兩個相鄰點都在圈外、但連線穿過判定圈（取樣稀疏時）也算進入。
+    - 進入時間以相鄰兩點線性內插到判定圈邊界，降低取樣間隔造成的誤差；
+      兩點相隔超過 MAX_INTERPOLATION_GAP_S 秒時不內插（見 _entry_crossing）。
     - 嘗試進行中又重新進入起點圈時，以最後一次進入為準重新計時。
     - 軌跡結束時仍未進入終點圈，記為無效嘗試。
     """
     attempts: list[Attempt] = []
     start_cross: TrackPoint | None = None
     path: list[TrackPoint] = []
-    was_in_start = was_in_end = False
 
     for i, p in enumerate(points):
         prev = points[i - 1] if i > 0 else None
-        in_start = _inside(p, segment.start, segment.radius_m)
-        in_end = _inside(p, segment.end, segment.radius_m)
 
         if start_cross is not None:
-            if in_end and not was_in_end:
-                end_cross = _boundary_crossing(prev, p, segment.end, segment.radius_m)
+            end_cross = _entry_crossing(prev, p, segment.end, segment.radius_m)
+            if end_cross is not None:
                 attempts.append(_finish(segment, start_cross, end_cross, path + [end_cross]))
                 start_cross = None
             else:
                 path.append(p)
 
-        if in_start and not was_in_start:
-            start_cross = _boundary_crossing(prev, p, segment.start, segment.radius_m)
-            path = [start_cross, p]
-
-        was_in_start, was_in_end = in_start, in_end
+        entry = _entry_crossing(prev, p, segment.start, segment.radius_m)
+        if entry is not None:
+            start_cross = entry
+            path = [entry] if entry is p else [entry, p]
 
     if start_cross is not None:
         attempts.append(
@@ -85,24 +85,46 @@ def _inside(p: TrackPoint, center: Point, radius_m: float) -> bool:
     return haversine_m(p.lat, p.lon, center.lat, center.lon) <= radius_m
 
 
-def _boundary_crossing(outside: TrackPoint | None, inside: TrackPoint, center: Point, radius_m: float) -> TrackPoint:
-    """在 outside→inside 線段上找出與判定圈邊界的交點，時間與位置皆線性內插。"""
-    if outside is None:
-        return inside
-    ox, oy = to_local_offset_m(outside.lat, outside.lon, center.lat, center.lon)
-    ix, iy = to_local_offset_m(inside.lat, inside.lon, center.lat, center.lon)
-    dx, dy = ix - ox, iy - oy
-    # 解 |O + t·D|² = r²，取 [0, 1] 內較小的根（從圈外進入的那一點）
-    a = dx * dx + dy * dy
-    b = 2 * (ox * dx + oy * dy)
-    c = ox * ox + oy * oy - radius_m * radius_m
-    disc = b * b - 4 * a * c
-    if a == 0 or disc < 0:
-        return inside
-    t = min(max((-b - math.sqrt(disc)) / (2 * a), 0.0), 1.0)
-    seconds = (inside.time - outside.time).total_seconds() * t
-    return TrackPoint(
-        outside.lat + (inside.lat - outside.lat) * t,
-        outside.lon + (inside.lon - outside.lon) * t,
-        outside.time + timedelta(seconds=seconds),
-    )
+def _entry_crossing(prev: TrackPoint | None, cur: TrackPoint, center: Point, radius_m: float) -> TrackPoint | None:
+    """prev→cur 這一步是否進入判定圈；是的話回傳進圈的那一點（時間與位置皆線性內插），否則 None。"""
+    cur_inside = _inside(cur, center, radius_m)
+    if prev is None:
+        return cur if cur_inside else None
+    if _inside(prev, center, radius_m):
+        return None
+
+    t = _first_intersection(prev, cur, center, radius_m)
+    gap_too_long = (cur.time - prev.time).total_seconds() > MAX_INTERPOLATION_GAP_S
+    if cur_inside:
+        # 確定已進圈；時間差太大時退回使用圈內點本身，不相信內插
+        return cur if t is None or gap_too_long else _interpolate(prev, cur, t)
+    # 兩點都在圈外：只有連線穿過圓、且時間差不大時才算進圈
+    if t is None or gap_too_long:
+        return None
+    return _interpolate(prev, cur, t)
+
+
+def _first_intersection(a: TrackPoint, b: TrackPoint, center: Point, radius_m: float) -> float | None:
+    """線段 a→b 第一次碰到圓周的位置比例 t ∈ [0, 1]；沒有交點則為 None。
+
+    以圓心為原點的局部平面座標解 |A + t·D|² = r²，取較小的根（從圈外進入的那一點）。
+    """
+    ax, ay = to_local_offset_m(a.lat, a.lon, center.lat, center.lon)
+    bx, by = to_local_offset_m(b.lat, b.lon, center.lat, center.lon)
+    dx, dy = bx - ax, by - ay
+    qa = dx * dx + dy * dy
+    qb = 2 * (ax * dx + ay * dy)
+    qc = ax * ax + ay * ay - radius_m * radius_m
+    disc = qb * qb - 4 * qa * qc
+    if qa == 0 or disc < 0:
+        return None
+    t = (-qb - math.sqrt(disc)) / (2 * qa)
+    # 圈內判定用 haversine、這裡用平面近似，邊界上可能有極小誤差，容許少量超出後夾回 [0, 1]
+    if t < -1e-6 or t > 1 + 1e-6:
+        return None
+    return min(max(t, 0.0), 1.0)
+
+
+def _interpolate(a: TrackPoint, b: TrackPoint, t: float) -> TrackPoint:
+    seconds = (b.time - a.time).total_seconds() * t
+    return TrackPoint(a.lat + (b.lat - a.lat) * t, a.lon + (b.lon - a.lon) * t, a.time + timedelta(seconds=seconds))

@@ -78,3 +78,41 @@ def test_entering_end_before_start_does_not_complete_an_attempt():
 
 def test_track_never_near_segment_has_no_attempts():
     assert match_segment(run([3000, 5000]), SEGMENT) == []
+
+
+M_PER_DEG_LON = M_PER_DEG_LAT * 0.9063077870366499  # cos(25°)
+
+
+def at(east_m, north_m, seconds):
+    return TrackPoint(START.lat + north_m / M_PER_DEG_LAT, START.lon + east_m / M_PER_DEG_LON, T0 + timedelta(seconds=seconds))
+
+
+def test_drifted_first_fix_near_start_does_not_produce_a_fast_valid_time():
+    # 出發點離起點圈 60 m，手錶第一個定位飄到 150 m 外；正確成績為 1200 / 3.5 ≈ 343 秒
+    from scorer.track import clean_points
+
+    track = [at(150, -85, 0)] + [at(0, -85 + 3.5 * t, t) for t in range(3, 450, 3)]
+    cleaned = clean_points(track)
+    [attempt] = match_segment(cleaned.kept, SEGMENT)
+    assert cleaned.dropped_speed == 1
+    assert attempt.valid
+    assert attempt.seconds == 343
+
+
+def test_no_interpolation_across_a_long_gap():
+    # 圈外點與圈內點相隔 60 秒：無法相信內插結果，改用圈內點的時間
+    track = [at(0, -300, 0), at(0, -10, 60)] + [at(0, -10 + 4 * t, 60 + t) for t in range(3, 400, 3)]
+    [attempt] = match_segment(track, SEGMENT)
+    assert attempt.start_time == T0 + timedelta(seconds=60)
+
+
+def test_sparse_samples_passing_through_circle_without_landing_inside_still_count():
+    # 10 秒取樣、3.5 m/s、離圓心 22 m 側向通過：圈內弦長只有約 24 m，沒有任何取樣點落在圈內
+    from scorer.geo import haversine_m
+
+    track = [at(22, -188 + 35 * k, 10 * k) for k in range(45)]
+    for c in (START, END):  # 確認真的沒有點落在圈內
+        assert all(haversine_m(p.lat, p.lon, c.lat, c.lon) > 25 for p in track)
+    [attempt] = match_segment(track, SEGMENT)
+    assert attempt.valid
+    assert attempt.elapsed_s == pytest.approx(1200 / 3.5, abs=1)
