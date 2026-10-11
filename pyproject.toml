@@ -2,13 +2,14 @@
 name = "segment-challenge-scorer"
 version = "0.1.0"
 description = "跑團區段挑戰計分工具：匯入 GPX、比對區段、產生排行榜"
+license = "MIT"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "gpxpy>=1.6.2",
     "pyyaml>=6.0.3",
     "tabulate[widechars]>=0.10.0",
-    "typer>=0.27.3",
+    "typer>=0.27.3,<0.28",  # cli.py 依賴 typer._click 內部路徑，升級前需確認
 ]
 
 [project.scripts]

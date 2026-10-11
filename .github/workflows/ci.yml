@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies (locked)
+        run: uv sync --locked
+      - name: Run tests
+        run: uv run pytest
+      - name: Sample data is reproducible
+        run: |
+          uv run python scripts/generate_sample_data.py
+          git diff --exit-code sample_data

@@ -182,7 +182,7 @@ requires-dist = [
     { name = "gpxpy", specifier = ">=1.6.2" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "tabulate", extras = ["widechars"], specifier = ">=0.10.0" },
-    { name = "typer", specifier = ">=0.27.3" },
+    { name = "typer", specifier = ">=0.27.3,<0.28" },
 ]
 
 [package.metadata.requires-dev]
