@@ -1,0 +1,16 @@
+# 區段設定檔：同一份檔案可定義多個區段
+segments:
+  - code: RIVER-1K2
+    name: 河堤直線 1.2K
+    start: {lat: 25.0215000, lon: 121.5095000}
+    end: {lat: 25.0322919, lon: 121.5095000}
+    radius_m: 25            # 判定半徑（公尺），省略時預設 25
+    reference_length_m: 1200
+    month: "2026-10"
+
+  - code: WEST-1K4
+    name: 西岸回程 1.4K
+    start: {lat: 25.0331912, lon: 121.5005678}
+    end: {lat: 25.0206007, lon: 121.5005678}
+    reference_length_m: 1400
+    month: "2026-10"
