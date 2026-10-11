@@ -89,3 +89,22 @@ def test_parse_rejects_broken_xml():
 def test_parse_rejects_gpx_without_track_points():
     with pytest.raises(GpxParseError, match="沒有軌跡點"):
         parse_gpx(gpx(""))
+
+
+def test_drifted_first_point_is_dropped_once_following_points_agree():
+    # 第一點飄到 150 m 外，之後的點彼此一致：應剔除第一點，而不是後面一整串正常點
+    drifted = TrackPoint(25.0 + 150 / 111_195, 121.5, T0)
+    good = [point(3 * i, 10 * i) for i in range(1, 10)]
+    result = clean_points([drifted, *good])
+    assert result.kept == good
+    assert result.dropped_speed == 1
+
+
+def test_sustained_drift_mid_track_is_still_dropped():
+    # 軌跡中段（已有足夠保留點）出現持續飄移，仍依「與前一個保留點比較」剔除
+    before = [point(3 * i, 10 * i) for i in range(6)]
+    drift = [TrackPoint(25.0 + (500 + 10 * i) / 111_195, 121.5, T0 + timedelta(seconds=18 + 3 * i)) for i in range(6)]
+    after = point(36, 60)
+    result = clean_points([*before, *drift, after])
+    assert result.kept == [*before, after]
+    assert result.dropped_speed == 6

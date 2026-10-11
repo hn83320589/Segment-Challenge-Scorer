@@ -9,6 +9,9 @@ import gpxpy.gpx
 from scorer.geo import haversine_m
 
 MAX_SPEED_MPS = 30 / 3.6
+# 軌跡開頭保留點少於此數、而之後連續這麼多個彼此一致的點都被判為過快時，
+# 視為開頭保留的點才是飄移（手錶剛定位完成時常見），改剔除開頭那幾點。
+START_DRIFT_CONSENSUS = 5
 
 
 class GpxParseError(Exception):
@@ -59,17 +62,33 @@ def clean_points(points: list[TrackPoint]) -> CleanResult:
     """剔除沒有時間戳的點，以及與前一個保留點推算速度超過 30 km/h 的點。
 
     時間沒有前進（dt <= 0）的點無法推算速度，視同飄移剔除。
+
+    例外：軌跡開頭（保留點少於 START_DRIFT_CONSENSUS 個）時，若之後連續
+    START_DRIFT_CONSENSUS 個被拒的點彼此一致，代表錯的是開頭的基準點，
+    改為剔除開頭的保留點、採用這一串點。軌跡中段不做此修正。
     """
     kept: list[TrackPoint] = []
+    rejected_run: list[TrackPoint] = []  # 連續被拒、且彼此一致的點
     no_time = speed = 0
     for p in points:
         if p.time is None:
             no_time += 1
             continue
-        if kept and _too_fast(kept[-1], p):
-            speed += 1
-            continue
-        kept.append(p)
+        if rejected_run and _too_fast(rejected_run[-1], p):
+            speed += len(rejected_run)
+            rejected_run = []
+        accepted = not kept or not _too_fast(kept[-1], p)
+        rejected_run.append(p)
+
+        # 開頭階段：被拒的那串點（含 p）已經彼此一致地累積夠多 → 錯的是開頭的保留點
+        if len(kept) < START_DRIFT_CONSENSUS and len(rejected_run) >= START_DRIFT_CONSENSUS:
+            speed += len(kept)
+            kept, rejected_run = rejected_run, []
+        elif accepted:
+            speed += len(rejected_run) - 1
+            kept.append(p)
+            rejected_run = []
+    speed += len(rejected_run)
     return CleanResult(kept, no_time, speed)
 
 
